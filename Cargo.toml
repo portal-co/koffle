@@ -1,0 +1,13 @@
+[package]
+name = "koffle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+once_map = "0.4.21"
+portal-pc-waffle = "0.3.8"
+waffle-ast = "0.4.3"
+
+[features]
+corpack=[]
