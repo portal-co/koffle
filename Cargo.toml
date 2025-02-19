@@ -1,7 +1,9 @@
 [package]
-name = "koffle"
-version = "0.1.0"
+name = "portal-pc-koffle"
+version = "0.0.0"
 edition = "2021"
+license = "CC0-1.0"
+description = "Krazy things with WAFFLE"
 
 [dependencies]
 anyhow = "1.0.95"

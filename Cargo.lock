@@ -435,16 +435,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
-name = "koffle"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "once_map",
- "portal-pc-waffle",
- "waffle-ast",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -633,6 +623,16 @@ name = "polonius-the-crab"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a69ee997a6282f8462abf1e0d8c38c965e968799e912b3bed8c9e8a28c2f9f"
+
+[[package]]
+name = "portal-pc-koffle"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "once_map",
+ "portal-pc-waffle",
+ "waffle-ast",
+]
 
 [[package]]
 name = "portal-pc-waffle"
