@@ -23,6 +23,7 @@ pub struct Hustle<'a> {
 }
 pub struct Core {
     pub opaque: BTreeMap<Vec<Type>, Func>,
+    pub bool_funcs: BTreeSet<Func>,
     pub gl: usize,
 }
 impl Hustle<'_> {
@@ -276,6 +277,38 @@ impl Hustle<'_> {
                             state.insert(t, ts);
                             state.insert(f, fs);
                         }
+                        ValueDef::Operator(
+                            Operator::Call { function_index },
+                            _,
+                            _,
+                        ) if self.core.bool_funcs.contains(function_index) => {
+                            let (t, mut ts) = (dst.add_block(), state2.clone());
+                            let (f, mut fs) = (dst.add_block(), state2.clone());
+                            dst.set_terminator(
+                                new,
+                                waffle::Terminator::CondBr {
+                                    cond: v.0,
+                                    if_true: BlockTarget {
+                                        block: t,
+                                        args: vec![],
+                                    },
+                                    if_false: BlockTarget {
+                                        block: f,
+                                        args: vec![],
+                                    },
+                                },
+                            );
+                            // let i2 = v.1;
+                            let i3 = v.2.max(self.core.gl);
+                            let v =
+                                dst.add_op(t, Operator::I32Const { value: 1 }, &[], &[Type::I32]);
+                            ts.insert(i, (v, Some(ConstVal::I32(1)), i3));
+                            let v =
+                                dst.add_op(f, Operator::I32Const { value: 0 }, &[], &[Type::I32]);
+                            fs.insert(i, (v, Some(ConstVal::I32(0)), i3));
+                            state.insert(t, ts);
+                            state.insert(f, fs);
+                        }
                         _ => {
                             state2.insert(i, v);
                             state.insert(new, state2);
@@ -429,10 +462,11 @@ impl Hustle<'_> {
         });
     }
 }
-pub fn hustle_mod(m: &mut Module, gl: usize) -> anyhow::Result<()> {
+pub fn hustle_mod(m: &mut Module, gl: usize, bool_funcs: BTreeSet<Func>) -> anyhow::Result<()> {
     let mut c = Core {
         gl,
         opaque: Default::default(),
+        bool_funcs,
     };
     for f in m.funcs.iter().collect::<BTreeSet<_>>() {
         let mut g = take(&mut m.funcs[f]);
