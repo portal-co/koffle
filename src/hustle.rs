@@ -11,12 +11,15 @@ use waffle::{
     Block, BlockTarget, ConstVal, Func, FunctionBody, Module, Operator, Type, ValueDef,
 };
 // #[derive(Default)]
-pub struct Hustle {
+pub struct Hustle<'a> {
     pub blocks: BTreeMap<Block, BTreeMap<Vec<Option<(ConstVal, usize)>>, Block>>,
+    pub core: &'a mut Core
+}
+pub struct Core{
     pub opaque: BTreeMap<Vec<Type>, Func>,
     pub gl: usize,
 }
-impl Hustle {
+impl Hustle<'_> {
     pub fn translate(
         &mut self,
         module: &mut Module,
@@ -65,8 +68,26 @@ impl Hustle {
                                         &[],
                                         &[k.clone()],
                                     ),
-                                    ConstVal::None => todo!(),
-                                    ConstVal::Ref(func) => todo!(),
+                                    ConstVal::None => dst.add_op(
+                                        new,
+                                        Operator::RefNull { ty: k.clone() },
+                                        &[],
+                                        &[k.clone()],
+                                    ),
+                                    ConstVal::Ref(func) => match func.as_ref() {
+                                        None => dst.add_op(
+                                            new,
+                                            Operator::RefNull { ty: k.clone() },
+                                            &[],
+                                            &[k.clone()],
+                                        ),
+                                        Some(f) => dst.add_op(
+                                            new,
+                                            Operator::RefFunc { func_index: *f },
+                                            &[],
+                                            &[k.clone()],
+                                        ),
+                                    },
                                 },
                                 Some(k2.0.clone()),
                                 k2.1,
@@ -106,7 +127,7 @@ impl Hustle {
                                 state2.insert(s, (t, v, u));
                             } else {
                                 let v = dst.values[t].tys(&dst.type_pool).to_owned();
-                                let f = *self.opaque.entry(v.to_owned()).or_insert_with_key(|a| {
+                                let f = *self.core.opaque.entry(v.to_owned()).or_insert_with_key(|a| {
                                     let a = a.clone();
                                     let sig = new_sig(
                                         module,
@@ -158,7 +179,7 @@ impl Hustle {
                             let tys = &src.type_pool[*list_ref1];
                             let d = d.into_iter().collect::<Option<Vec<_>>>();
                             let c = d.and_then(|d| const_eval(operator, &d, None));
-                            let a = if c.is_some() { a.min(self.gl) } else { a };
+                            let a = if c.is_some() { a.min(self.core.gl) } else { a };
                             let a = match operator {
                                 Operator::Call { .. }
                                 | Operator::CallIndirect { .. }
@@ -227,7 +248,7 @@ impl Hustle {
                                 },
                             );
                             // let i2 = v.1;
-                            let i3 = v.2.max(self.gl);
+                            let i3 = v.2.max(self.core.gl);
                             let v =
                                 dst.add_op(t, Operator::I32Const { value: 1 }, &[], &[Type::I32]);
                             ts.insert(i, (v, Some(ConstVal::I32(1)), i3));
