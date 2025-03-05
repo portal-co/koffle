@@ -23,6 +23,9 @@ pub struct Hustle<'a> {
 }
 pub struct Core {
     pub opaque: BTreeMap<Vec<Type>, Func>,
+    pub cfg: Cfg,
+}
+pub struct Cfg{
     pub bool_funcs: BTreeSet<Func>,
     pub gl: usize,
 }
@@ -198,7 +201,7 @@ impl Hustle<'_> {
                             let tys = &src.type_pool[*list_ref1];
                             let d = d.into_iter().collect::<Option<Vec<_>>>();
                             let c = d.and_then(|d| const_eval(operator, &d, None));
-                            let a = if c.is_some() { a.min(self.core.gl) } else { a };
+                            let a = if c.is_some() { a.min(self.core.cfg.gl) } else { a };
                             let a = match operator {
                                 Operator::Call { .. }
                                 | Operator::CallIndirect { .. }
@@ -267,7 +270,7 @@ impl Hustle<'_> {
                                 },
                             );
                             // let i2 = v.1;
-                            let i3 = v.2.max(self.core.gl);
+                            let i3 = v.2.max(self.core.cfg.gl);
                             let v =
                                 dst.add_op(t, Operator::I32Const { value: 1 }, &[], &[Type::I32]);
                             ts.insert(i, (v, Some(ConstVal::I32(1)), i3));
@@ -281,7 +284,7 @@ impl Hustle<'_> {
                             Operator::Call { function_index },
                             _,
                             _,
-                        ) if self.core.bool_funcs.contains(function_index) => {
+                        ) if self.core.cfg.bool_funcs.contains(function_index) => {
                             let (t, mut ts) = (dst.add_block(), state2.clone());
                             let (f, mut fs) = (dst.add_block(), state2.clone());
                             dst.set_terminator(
@@ -299,7 +302,7 @@ impl Hustle<'_> {
                                 },
                             );
                             // let i2 = v.1;
-                            let i3 = v.2.max(self.core.gl);
+                            let i3 = v.2.max(self.core.cfg.gl);
                             let v =
                                 dst.add_op(t, Operator::I32Const { value: 1 }, &[], &[Type::I32]);
                             ts.insert(i, (v, Some(ConstVal::I32(1)), i3));
@@ -462,11 +465,12 @@ impl Hustle<'_> {
         });
     }
 }
-pub fn hustle_mod(m: &mut Module, gl: usize, bool_funcs: BTreeSet<Func>) -> anyhow::Result<()> {
+pub fn hustle_mod(m: &mut Module, cfg: Cfg) -> anyhow::Result<()> {
     let mut c = Core {
-        gl,
+        // gl,
         opaque: Default::default(),
-        bool_funcs,
+        // bool_funcs,
+        cfg
     };
     for f in m.funcs.iter().collect::<BTreeSet<_>>() {
         let mut g = take(&mut m.funcs[f]);
