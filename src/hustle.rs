@@ -1,10 +1,20 @@
-use std::{collections::BTreeMap, default, mem::take, usize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    default,
+    mem::take,
+    usize,
+};
 
 use anyhow::Context;
 // use arena_traits::IndexAlloc;
 
 use waffle::{
-    cfg::CFGInfo, const_eval, passes::{basic_opt::value_is_pure, tcore::results_ref_2}, util::new_sig, Block, BlockTarget, ConstVal, Func, FunctionBody, Module, Operator, Type, Value, ValueDef
+    cfg::CFGInfo,
+    const_eval,
+    passes::{basic_opt::value_is_pure, tcore::results_ref_2},
+    util::new_sig,
+    Block, BlockTarget, ConstVal, Func, FuncDecl, FunctionBody, Module, Operator, Type, Value,
+    ValueDef,
 };
 // #[derive(Default)]
 pub struct Hustle<'a> {
@@ -115,59 +125,60 @@ impl Hustle<'_> {
                     }
                 }
                 for (new, mut state2) in take(&mut state) {
-                    let mut u = |state2: &mut BTreeMap<_,(Value,Option<ConstVal>,usize)>,dst: &mut FunctionBody,s: Value|{
-                        let Some((t,v,u)) = state2.remove(&s) else{
-                            return None;
-                        };
-                        if u == usize::MAX {
-                            state2.insert(s, (t, v, u));
-                        } else {
-                            if let Some(u) = u.checked_sub(1) {
+                    let mut u =
+                        |state2: &mut BTreeMap<_, (Value, Option<ConstVal>, usize)>,
+                         dst: &mut FunctionBody,
+                         s: Value| {
+                            let Some((t, v, u)) = state2.remove(&s) else {
+                                return None;
+                            };
+                            if u == usize::MAX {
                                 state2.insert(s, (t, v, u));
                             } else {
-                                let v = dst.values[t].tys(&dst.type_pool).to_owned();
-                                let f =
-                                    *self
-                                        .core
-                                        .opaque
-                                        .entry(v.to_owned())
-                                        .or_insert_with_key(|a| {
-                                            let a = a.clone();
-                                            let sig = new_sig(
-                                                module,
-                                                waffle::SignatureData::Func {
-                                                    params: a.clone(),
-                                                    returns: a,
-                                                },
-                                            );
-                                            let mut g = FunctionBody::new(module, sig);
-                                            let args = g.blocks[g.entry]
-                                                .params
-                                                .iter()
-                                                .map(|a| a.1)
-                                                .collect();
-                                            g.set_terminator(
-                                                g.entry,
-                                                waffle::Terminator::Return { values: args },
-                                            );
-                                            module.funcs.push(waffle::FuncDecl::Body(
-                                                sig,
-                                                format!("opaquify"),
-                                                g,
-                                            ))
-                                        });
-                                let args = results_ref_2(dst, t);
-                                let v = dst.add_op(
-                                    new,
-                                    Operator::Call { function_index: f },
-                                    &args,
-                                    &v,
-                                );
-                                state2.insert(s, (v, None, usize::MAX));
-                            }
+                                if let Some(u) = u.checked_sub(1) {
+                                    state2.insert(s, (t, v, u));
+                                } else {
+                                    let v = dst.values[t].tys(&dst.type_pool).to_owned();
+                                    let f =
+                                        *self.core.opaque.entry(v.to_owned()).or_insert_with_key(
+                                            |a| {
+                                                let a = a.clone();
+                                                let sig = new_sig(
+                                                    module,
+                                                    waffle::SignatureData::Func {
+                                                        params: a.clone(),
+                                                        returns: a,
+                                                    },
+                                                );
+                                                let mut g = FunctionBody::new(module, sig);
+                                                let args = g.blocks[g.entry]
+                                                    .params
+                                                    .iter()
+                                                    .map(|a| a.1)
+                                                    .collect();
+                                                g.set_terminator(
+                                                    g.entry,
+                                                    waffle::Terminator::Return { values: args },
+                                                );
+                                                module.funcs.push(waffle::FuncDecl::Body(
+                                                    sig,
+                                                    format!("opaquify"),
+                                                    g,
+                                                ))
+                                            },
+                                        );
+                                    let args = results_ref_2(dst, t);
+                                    let v = dst.add_op(
+                                        new,
+                                        Operator::Call { function_index: f },
+                                        &args,
+                                        &v,
+                                    );
+                                    state2.insert(s, (v, None, usize::MAX));
+                                }
+                            };
+                            return state2.get(&s).cloned();
                         };
-                        return state2.get(&s).cloned();
-                    };
                     let new = new;
                     let v = match &src.values[i] {
                         waffle::ValueDef::BlockParam(block, _, _) => todo!(),
@@ -176,7 +187,7 @@ impl Hustle<'_> {
                             let mut d = vec![];
                             let args = src.arg_pool[*list_ref]
                                 .iter()
-                                .filter_map(|a|u(&mut state2,dst,*a))
+                                .filter_map(|a| u(&mut state2, dst, *a))
                                 .map(|(v, c, b)| {
                                     a = a.min(b);
                                     d.push(c);
@@ -281,13 +292,11 @@ impl Hustle<'_> {
                             .iter()
                             .filter_map(|b| state.get(b))
                             .cloned()
-                            .filter_map(|(a, b, c)| {
-                                match b.map(|b| (b, c)){
-                                    None => Some(a),
-                                    Some(d) => {
-                                        cp.push(Some(d));
-                                        None
-                                    }
+                            .filter_map(|(a, b, c)| match b.map(|b| (b, c)) {
+                                None => Some(a),
+                                Some(d) => {
+                                    cp.push(Some(d));
+                                    None
                                 }
                             })
                             .collect(),
@@ -419,4 +428,38 @@ impl Hustle<'_> {
             }
         });
     }
+}
+pub fn hustle_mod(m: &mut Module, gl: usize) -> anyhow::Result<()> {
+    let mut c = Core {
+        gl,
+        opaque: Default::default(),
+    };
+    for f in m.funcs.iter().collect::<BTreeSet<_>>() {
+        let mut g = take(&mut m.funcs[f]);
+        if let FuncDecl::Body(s, _, b) = &mut g {
+            let s = *s;
+            let mut new = FunctionBody::new(&m, s);
+            new.entry = match (Hustle {
+                blocks: Default::default(),
+                core: &mut c,
+            })
+            .translate(
+                m,
+                &mut new,
+                &*b,
+                b.entry,
+                b.blocks[b.entry].params.iter().map(|_| None).collect(),
+            ) {
+                Ok(a) => a,
+                Err(e) => {
+                    m.funcs[f] = g;
+                    return Err(e);
+                }
+            };
+            new.recompute_edges();
+            *b = new;
+        }
+        m.funcs[f] = g;
+    }
+    Ok(())
 }
