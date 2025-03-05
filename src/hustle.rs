@@ -51,9 +51,9 @@ impl Hustle<'_> {
                     (
                         *v,
                         match cv.as_ref() {
-                            None => (dst.add_blockparam(new, *k), None, usize::MAX),
+                            None => (vec![dst.add_blockparam(new, *k)], None, usize::MAX),
                             Some(k2) => (
-                                match &k2.0 {
+                                vec![match &k2.0 {
                                     ConstVal::I32(a) => dst.add_op(
                                         new,
                                         Operator::I32Const { value: *a },
@@ -98,7 +98,7 @@ impl Hustle<'_> {
                                             &[k.clone()],
                                         ),
                                     },
-                                },
+                                }],
                                 Some(k2.0.clone()),
                                 k2.1,
                             ),
@@ -130,7 +130,7 @@ impl Hustle<'_> {
                 }
                 for (new, mut state2) in take(&mut state) {
                     let mut u =
-                        |state2: &mut BTreeMap<_, (Value, Option<ConstVal>, usize)>,
+                        |state2: &mut BTreeMap<_, (Vec<Value>, Option<ConstVal>, usize)>,
                          dst: &mut FunctionBody,
                          s: Value| {
                             let Some((t, v, u)) = state2.remove(&s) else {
@@ -142,7 +142,7 @@ impl Hustle<'_> {
                                 if let Some(u) = u.checked_sub(1) {
                                     state2.insert(s, (t, v, u));
                                 } else {
-                                    let v = dst.values[t].tys(&dst.type_pool).to_owned();
+                                    let v = t.iter().filter_map(|a|dst.values[*a].ty(&dst.type_pool)).collect::<Vec<_>>();
                                     let f =
                                         *self.core.opaque.entry(v.to_owned()).or_insert_with_key(
                                             |a| {
@@ -171,13 +171,14 @@ impl Hustle<'_> {
                                                 ))
                                             },
                                         );
-                                    let args = results_ref_2(dst, t);
+                                    let args = t;
                                     let v = dst.add_op(
                                         new,
                                         Operator::Call { function_index: f },
                                         &args,
                                         &v,
                                     );
+                                    let v = results_ref_2(dst, v);
                                     state2.insert(s, (v, None, usize::MAX));
                                 }
                             };
@@ -197,6 +198,7 @@ impl Hustle<'_> {
                                     d.push(c);
                                     v
                                 })
+                                .flatten()
                                 .collect::<Vec<_>>();
                             let tys = &src.type_pool[*list_ref1];
                             let d = d.into_iter().collect::<Option<Vec<_>>>();
@@ -208,23 +210,24 @@ impl Hustle<'_> {
                                 | Operator::CallRef { .. } => usize::MAX,
                                 _ => a,
                             };
-                            (dst.add_op(new, operator.clone(), &args, tys), c, a)
+                            let v = dst.add_op(new, operator.clone(), &args, tys);
+                            (results_ref_2(dst,v), c, a)
                         }
                         waffle::ValueDef::PickOutput(value, a, b) => {
                             let value = state2
                                 .get(value)
                                 .cloned()
                                 .context("in getting the referenced value")?;
-                            let new_value = dst.values.push(ValueDef::PickOutput(value.0, *a, *b));
+                            let new_value = value.0[*a as usize];
                             dst.append_to_block(new, new_value);
-                            (new_value, None, value.2)
+                            (vec![new_value], None, value.2)
                         }
                         waffle::ValueDef::Alias(value) => state2
                             .get(value)
                             .cloned()
                             .context("in getting the referenced value")?,
                         waffle::ValueDef::Placeholder(_) => todo!(),
-                        _ => (dst.add_op(new, Operator::Nop, &[], &[]), None, usize::MAX),
+                        _ => (vec![dst.add_op(new, Operator::Nop, &[], &[])], None, usize::MAX),
                     };
                     match &src.values[i] {
                         ValueDef::Operator(
@@ -258,7 +261,7 @@ impl Hustle<'_> {
                             dst.set_terminator(
                                 new,
                                 waffle::Terminator::CondBr {
-                                    cond: v.0,
+                                    cond: v.0[0],
                                     if_true: BlockTarget {
                                         block: t,
                                         args: vec![],
@@ -273,10 +276,10 @@ impl Hustle<'_> {
                             let i3 = v.2.max(self.core.cfg.gl);
                             let v =
                                 dst.add_op(t, Operator::I32Const { value: 1 }, &[], &[Type::I32]);
-                            ts.insert(i, (v, Some(ConstVal::I32(1)), i3));
+                            ts.insert(i, (vec![v], Some(ConstVal::I32(1)), i3));
                             let v =
                                 dst.add_op(f, Operator::I32Const { value: 0 }, &[], &[Type::I32]);
-                            fs.insert(i, (v, Some(ConstVal::I32(0)), i3));
+                            fs.insert(i, (vec![v], Some(ConstVal::I32(0)), i3));
                             state.insert(t, ts);
                             state.insert(f, fs);
                         }
@@ -290,7 +293,7 @@ impl Hustle<'_> {
                             dst.set_terminator(
                                 new,
                                 waffle::Terminator::CondBr {
-                                    cond: v.0,
+                                    cond: v.0[0],
                                     if_true: BlockTarget {
                                         block: t,
                                         args: vec![],
@@ -305,10 +308,10 @@ impl Hustle<'_> {
                             let i3 = v.2.max(self.core.cfg.gl);
                             let v =
                                 dst.add_op(t, Operator::I32Const { value: 1 }, &[], &[Type::I32]);
-                            ts.insert(i, (v, Some(ConstVal::I32(1)), i3));
+                            ts.insert(i, (vec![v], Some(ConstVal::I32(1)), i3));
                             let v =
                                 dst.add_op(f, Operator::I32Const { value: 0 }, &[], &[Type::I32]);
-                            fs.insert(i, (v, Some(ConstVal::I32(0)), i3));
+                            fs.insert(i, (vec![v], Some(ConstVal::I32(0)), i3));
                             state.insert(t, ts);
                             state.insert(f, fs);
                         }
@@ -335,6 +338,7 @@ impl Hustle<'_> {
                                     None
                                 }
                             })
+                            .flatten()
                             .collect(),
                         block: self.translate(module, dst, src, k.block, cp)?,
                     })
@@ -363,7 +367,7 @@ impl Hustle<'_> {
                                 let if_true = target_(if_true)?;
                                 let if_false = target_(if_false)?;
                                 waffle::Terminator::CondBr {
-                                    cond: cond.0,
+                                    cond: cond.0[0],
                                     if_true,
                                     if_false,
                                 }
@@ -394,7 +398,7 @@ impl Hustle<'_> {
                                     .map(target_)
                                     .collect::<anyhow::Result<Vec<_>>>()?;
                                 waffle::Terminator::Select {
-                                    value: value.0,
+                                    value: value.0[0],
                                     targets,
                                     default,
                                 }
@@ -405,7 +409,7 @@ impl Hustle<'_> {
                         values: values
                             .iter()
                             .filter_map(|b| state.get(b))
-                            .map(|a| a.0)
+                            .flat_map(|a| a.0.clone())
                             .collect(),
                     },
                     waffle::Terminator::ReturnCall { func, args } => {
@@ -414,7 +418,7 @@ impl Hustle<'_> {
                             args: args
                                 .iter()
                                 .filter_map(|b| state.get(b))
-                                .map(|a| a.0)
+                                .flat_map(|a| a.0.clone())
                                 .collect(),
                         }
                     }
@@ -425,7 +429,7 @@ impl Hustle<'_> {
                             args: args
                                 .iter()
                                 .filter_map(|b| state.get(b))
-                                .map(|a| a.0)
+                                .flat_map(|a| a.0.clone())
                                 .collect(),
                         }
                     }
@@ -444,7 +448,7 @@ impl Hustle<'_> {
                                 args: args
                                     .iter()
                                     .filter_map(|b| state.get(b))
-                                    .map(|a| a.0)
+                                    .flat_map(|a| a.0.clone())
                                     .collect(),
                             }
                         }
@@ -453,7 +457,7 @@ impl Hustle<'_> {
                             args: args
                                 .iter()
                                 .filter_map(|b| state.get(b))
-                                .map(|a| a.0)
+                                .flat_map(|a| a.0.clone())
                                 .collect(),
                         },
                     },
