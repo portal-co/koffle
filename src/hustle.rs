@@ -13,9 +13,9 @@ use waffle::{
 // #[derive(Default)]
 pub struct Hustle<'a> {
     pub blocks: BTreeMap<Block, BTreeMap<Vec<Option<(ConstVal, usize)>>, Block>>,
-    pub core: &'a mut Core
+    pub core: &'a mut Core,
 }
-pub struct Core{
+pub struct Core {
     pub opaque: BTreeMap<Vec<Type>, Func>,
     pub gl: usize,
 }
@@ -127,28 +127,36 @@ impl Hustle<'_> {
                                 state2.insert(s, (t, v, u));
                             } else {
                                 let v = dst.values[t].tys(&dst.type_pool).to_owned();
-                                let f = *self.core.opaque.entry(v.to_owned()).or_insert_with_key(|a| {
-                                    let a = a.clone();
-                                    let sig = new_sig(
-                                        module,
-                                        waffle::SignatureData::Func {
-                                            params: a.clone(),
-                                            returns: a,
-                                        },
-                                    );
-                                    let mut g = FunctionBody::new(module, sig);
-                                    let args =
-                                        g.blocks[g.entry].params.iter().map(|a| a.1).collect();
-                                    g.set_terminator(
-                                        g.entry,
-                                        waffle::Terminator::Return { values: args },
-                                    );
-                                    module.funcs.push(waffle::FuncDecl::Body(
-                                        sig,
-                                        format!("opaquify"),
-                                        g,
-                                    ))
-                                });
+                                let f =
+                                    *self
+                                        .core
+                                        .opaque
+                                        .entry(v.to_owned())
+                                        .or_insert_with_key(|a| {
+                                            let a = a.clone();
+                                            let sig = new_sig(
+                                                module,
+                                                waffle::SignatureData::Func {
+                                                    params: a.clone(),
+                                                    returns: a,
+                                                },
+                                            );
+                                            let mut g = FunctionBody::new(module, sig);
+                                            let args = g.blocks[g.entry]
+                                                .params
+                                                .iter()
+                                                .map(|a| a.1)
+                                                .collect();
+                                            g.set_terminator(
+                                                g.entry,
+                                                waffle::Terminator::Return { values: args },
+                                            );
+                                            module.funcs.push(waffle::FuncDecl::Body(
+                                                sig,
+                                                format!("opaquify"),
+                                                g,
+                                            ))
+                                        });
                                 let args = results_ref_2(dst, t);
                                 let v = dst.add_op(
                                     new,
@@ -372,16 +380,34 @@ impl Hustle<'_> {
                                 .collect(),
                         }
                     }
-                    waffle::Terminator::ReturnCallRef { sig, args } => {
-                        waffle::Terminator::ReturnCallRef {
+                    waffle::Terminator::ReturnCallRef { sig, args } => match args.split_last() {
+                        Some((a, args))
+                            if matches!(
+                                state.get(a),
+                                Some((_, Some(ConstVal::Ref(Some(_))), _))
+                            ) =>
+                        {
+                            let Some((_, Some(ConstVal::Ref(Some(f))), _)) = state.get(a) else {
+                                unreachable!()
+                            };
+                            waffle::Terminator::ReturnCall {
+                                func: *f,
+                                args: args
+                                    .iter()
+                                    .filter_map(|b| state.get(b))
+                                    .map(|a| a.0)
+                                    .collect(),
+                            }
+                        }
+                        _ => waffle::Terminator::ReturnCallRef {
                             sig: *sig,
                             args: args
                                 .iter()
                                 .filter_map(|b| state.get(b))
                                 .map(|a| a.0)
                                 .collect(),
-                        }
-                    }
+                        },
+                    },
                     waffle::Terminator::Unreachable => waffle::Terminator::Unreachable,
                     _ => waffle::Terminator::None,
                 };
