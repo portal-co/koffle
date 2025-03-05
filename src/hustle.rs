@@ -4,11 +4,7 @@ use anyhow::Context;
 // use arena_traits::IndexAlloc;
 
 use waffle::{
-    cfg::CFGInfo,
-    const_eval,
-    passes::{basic_opt::value_is_pure, tcore::results_ref_2},
-    util::new_sig,
-    Block, BlockTarget, ConstVal, Func, FunctionBody, Module, Operator, Type, ValueDef,
+    cfg::CFGInfo, const_eval, passes::{basic_opt::value_is_pure, tcore::results_ref_2}, util::new_sig, Block, BlockTarget, ConstVal, Func, FunctionBody, Module, Operator, Type, Value, ValueDef
 };
 // #[derive(Default)]
 pub struct Hustle<'a> {
@@ -119,7 +115,10 @@ impl Hustle<'_> {
                     }
                 }
                 for (new, mut state2) in take(&mut state) {
-                    for (s, (t, v, mut u)) in take(&mut state2) {
+                    let mut u = |state2: &mut BTreeMap<_,(Value,Option<ConstVal>,usize)>,dst: &mut FunctionBody,s: Value|{
+                        let Some((t,v,u)) = state2.remove(&s) else{
+                            return None;
+                        };
                         if u == usize::MAX {
                             state2.insert(s, (t, v, u));
                         } else {
@@ -166,8 +165,9 @@ impl Hustle<'_> {
                                 );
                                 state2.insert(s, (v, None, usize::MAX));
                             }
-                        }
-                    }
+                        };
+                        return state2.get(&s).cloned();
+                    };
                     let new = new;
                     let v = match &src.values[i] {
                         waffle::ValueDef::BlockParam(block, _, _) => todo!(),
@@ -176,8 +176,7 @@ impl Hustle<'_> {
                             let mut d = vec![];
                             let args = src.arg_pool[*list_ref]
                                 .iter()
-                                .filter_map(|a| state2.get(a))
-                                .cloned()
+                                .filter_map(|a|u(&mut state2,dst,*a))
                                 .map(|(v, c, b)| {
                                     a = a.min(b);
                                     d.push(c);
@@ -282,9 +281,14 @@ impl Hustle<'_> {
                             .iter()
                             .filter_map(|b| state.get(b))
                             .cloned()
-                            .map(|(a, b, c)| {
-                                cp.push(b.map(|b| (b, c)));
-                                a
+                            .filter_map(|(a, b, c)| {
+                                match b.map(|b| (b, c)){
+                                    None => Some(a),
+                                    Some(d) => {
+                                        cp.push(Some(d));
+                                        None
+                                    }
+                                }
                             })
                             .collect(),
                         block: self.translate(module, dst, src, k.block, cp)?,
