@@ -131,7 +131,8 @@ pub fn corpack(module: &mut Module, t: &TableMap, g: &GuardMap, s: &serdes::SerC
                                                 let SignatureData::Func {
                                                     params: p2,
                                                     returns,
-                                                } = module.signatures[module.funcs[f].sig()].clone()
+                                                } = module.signatures[module.funcs[f].sig()]
+                                                    .clone()
                                                 else {
                                                     continue;
                                                 };
@@ -151,6 +152,21 @@ pub fn corpack(module: &mut Module, t: &TableMap, g: &GuardMap, s: &serdes::SerC
                                                     .into_iter()
                                                     .chain(params.into_iter())
                                                     .collect();
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                    if let Some(z) = y.strip_prefix("d") {
+                                        if let Some((d, z)) = z.split_once(";") {
+                                            y = z;
+                                            for e in d
+                                                .split(",")
+                                                .filter_map(|a| usize::from_str_radix(a, 36).ok())
+                                            {
+                                                // if let Some(a) ={
+                                                let a = params.remove(params.len() - 1 - e);
+                                                params.push(a)
+                                                // }
                                             }
                                             continue;
                                         }

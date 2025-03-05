@@ -5,11 +5,12 @@ use std::{
     mem::{replace, take},
 };
 use waffle::{
-    BlockTarget, ExportKind, Func, FuncDecl, FunctionBody, Global, GlobalData, HeapType,
-    ImportKind, Memory, Module, Operator, Table, TableData, Type, WithNullable,
+    Block, BlockTarget, ExportKind, Func, FuncDecl, FunctionBody, Global, GlobalData, HeapType, ImportKind, Memory, Module, Operator, Table, TableData, Type, Value, WithNullable
 };
 use waffle_ast::tutils::{talloc, tfree};
 pub mod bulk_memory_lowering;
+pub mod rand;
+pub mod hustle;
 #[cfg(feature = "corpack")]
 pub mod corpack;
 pub fn init_with(module: &mut Module, init: Func) {
@@ -168,6 +169,22 @@ pub fn memory(module: &Module) -> Option<Memory> {
             None
         }
     })
+}
+pub  fn default_val(ty: Type, dst: &mut FunctionBody, k: Block) -> Value {
+    dst.add_op(
+        k,
+        match ty.clone() {
+            Type::I32 => Operator::I32Const { value: 0 },
+            Type::I64 => Operator::I64Const { value: 0 },
+            Type::F32 => Operator::F32Const { value: 0 },
+            Type::F64 => Operator::F64Const { value: 0 },
+            Type::V128 => todo!(),
+            Type::Heap(_) => Operator::RefNull { ty: ty.clone() },
+            _ => todo!(),
+        },
+        &[],
+        &[ty],
+    )
 }
 
 pub fn with_swizz<R>(

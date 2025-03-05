@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, mem};
 
 use anyhow::Context;
 use waffle::{
@@ -458,6 +458,73 @@ impl<T: Obfuscate, F: FnMut(Memory) -> bool> Obfuscate for Reload<T, F> {
                     module,
                 );
             }
+            //Offset ops
+            Operator::I32Load8U { memory } if memory.offset != 0 => {
+                let a = f.add_op(
+                    b,
+                    Operator::I64Const {
+                        value: memory.offset,
+                    },
+                    &[],
+                    &[Type::I64],
+                );
+                let a = if module.memories[memory.memory].memory64 {
+                    a
+                } else {
+                    f.add_op(b, Operator::I32WrapI64, &[a], &[Type::I32])
+                };
+                let mut memory = memory.clone();
+                let mut args = args.to_owned();
+                memory.offset = 0;
+                args[0] = f.add_op(
+                    b,
+                    if module.memories[memory.memory].memory64 {
+                        Operator::I64Add
+                    } else {
+                        Operator::I32Add
+                    },
+                    &[a, args[0]],
+                    &[if module.memories[memory.memory].memory64 {
+                        Type::I64
+                    } else {
+                        Type::I32
+                    }],
+                );
+                return self.obf(Operator::I32Load8U { memory }, f, b, &args, types, module);
+            }
+            Operator::I32Store8 { memory } if memory.offset != 0 => {
+                let a = f.add_op(
+                    b,
+                    Operator::I64Const {
+                        value: memory.offset,
+                    },
+                    &[],
+                    &[Type::I64],
+                );
+                let a = if module.memories[memory.memory].memory64 {
+                    a
+                } else {
+                    f.add_op(b, Operator::I32WrapI64, &[a], &[Type::I32])
+                };
+                let mut memory = memory.clone();
+                let mut args = args.to_owned();
+                memory.offset = 0;
+                args[0] = f.add_op(
+                    b,
+                    if module.memories[memory.memory].memory64 {
+                        Operator::I64Add
+                    } else {
+                        Operator::I32Add
+                    },
+                    &[a, args[0]],
+                    &[if module.memories[memory.memory].memory64 {
+                        Type::I64
+                    } else {
+                        Type::I32
+                    }],
+                );
+                return self.obf(Operator::I32Store8 { memory }, f, b, &args, types, module);
+            }
             _ => {
                 return self.wrapped.obf(o, f, b, args, types, module);
             }
@@ -696,8 +763,128 @@ impl<F: FnMut(Memory) -> bool> Obfuscate for LowerBulkMemory<F> {
         }
     }
 }
-pub fn lower(m: &mut Module, mut f: impl FnMut(Memory) -> bool) -> anyhow::Result<()>{
-    obf_mod(m, &mut LowerBulkMemory{predicate: &mut f})?;
-    obf_mod(m,&mut Reload{predicate: f, wrapped: DontObf{}})?;
-    return Ok(())
+pub fn lower(m: &mut Module, mut f: impl FnMut(Memory) -> bool) -> anyhow::Result<()> {
+    obf_mod(m, &mut LowerBulkMemory { predicate: &mut f })?;
+    obf_mod(
+        m,
+        &mut Reload {
+            predicate: f,
+            wrapped: DontObf {},
+        },
+    )?;
+    return Ok(());
+}
+pub struct Ream<F> {
+    pub resolver: F,
+}
+impl<F: FnMut(Memory) -> Option<(Func, Func)>> Obfuscate for Ream<F> {
+    fn obf(
+        &mut self,
+        o: Operator,
+        f: &mut FunctionBody,
+        b: Block,
+        args: &[waffle::Value],
+        types: &[Type],
+        module: &mut Module,
+    ) -> anyhow::Result<(waffle::Value, Block)> {
+        let (f2, m) = match o {
+            Operator::I32Load8U { memory } => match (self.resolver)(memory.memory) {
+                None => {
+                    return DontObf {}.obf(o, f, b, args, types, module);
+                }
+                Some(a) => (a.0, memory.memory),
+            },
+            Operator::I32Store8 { memory } => match (self.resolver)(memory.memory) {
+                None => {
+                    return DontObf {}.obf(o, f, b, args, types, module);
+                }
+                Some(a) => (a.1, memory.memory),
+            },
+            o => {
+                return DontObf {}.obf(o, f, b, args, types, module);
+            }
+        };
+        let idxtype = if module.memories[m].memory64 {
+            Type::I64
+        } else {
+            Type::I32
+        };
+        let narg0 = f.add_op(
+            b,
+            if module.memories[m].memory64 {
+                Operator::I64Const { value: 0 }
+            } else {
+                Operator::I32Const { value: 0 }
+            },
+            &[],
+            &[idxtype],
+        );
+        let narg0 = f.add_op(
+            b,
+            if module.memories[m].memory64 {
+                Operator::I64Sub
+            } else {
+                Operator::I32Sub
+            },
+            &[narg0, args[0]],
+            &[idxtype],
+        );
+        let c = f.add_op(
+            b,
+            if module.memories[m].memory64 {
+                Operator::I64GtU
+            } else {
+                Operator::I32GtU
+            },
+            &[args[0], narg0],
+            &[Type::I32],
+        );
+        let res = f.add_block();
+        let fb = f.add_block();
+        let ob = f.add_block();
+        f.set_terminator(
+            b,
+            waffle::Terminator::CondBr {
+                cond: c,
+                if_true: BlockTarget {
+                    block: fb,
+                    args: vec![],
+                },
+                if_false: BlockTarget {
+                    block: ob,
+                    args: vec![],
+                },
+            },
+        );
+        let (v, ob) = DontObf {}.obf(o, f, ob, args, types, module)?;
+        let v = if types.len() == 0 { c } else { v };
+        f.set_terminator(
+            ob,
+            waffle::Terminator::Br {
+                target: BlockTarget {
+                    block: res,
+                    args: vec![v],
+                },
+            },
+        );
+        let (v, fb) = DontObf {}.obf(
+            Operator::Call { function_index: f2 },
+            f,
+            fb,
+            args,
+            types,
+            module,
+        )?;
+        let v = if types.len() == 0 { c } else { v };
+        f.set_terminator(
+            fb,
+            waffle::Terminator::Br {
+                target: BlockTarget {
+                    block: res,
+                    args: vec![v],
+                },
+            },
+        );
+        Ok((f.add_blockparam(res, Type::I32), res))
+    }
 }
