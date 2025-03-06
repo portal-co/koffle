@@ -13,8 +13,8 @@ use waffle::{
     const_eval,
     passes::{basic_opt::value_is_pure, tcore::results_ref_2},
     util::new_sig,
-    Block, BlockTarget, ConstVal, Func, FuncDecl, FunctionBody, Module, Operator, Type, Value,
-    ValueDef,
+    Block, BlockTarget, ConstVal, Func, FuncDecl, FunctionBody, ImportKind, Module, Operator, Type,
+    Value, ValueDef,
 };
 // #[derive(Default)]
 pub struct Hustle<'a> {
@@ -25,9 +25,23 @@ pub struct Core {
     pub opaque: BTreeMap<Vec<Type>, Func>,
     pub cfg: Cfg,
 }
-pub struct Cfg{
+pub struct Cfg {
     pub bool_funcs: BTreeSet<Func>,
     pub gl: usize,
+    pub inline_constants: BTreeMap<Func, Vec<ConstVal>>,
+}
+fn cv(k2: &ConstVal, k: Type, new: Block, dst: &mut FunctionBody) -> Value {
+    match k2 {
+        ConstVal::I32(a) => dst.add_op(new, Operator::I32Const { value: *a }, &[], &[k.clone()]),
+        ConstVal::I64(a) => dst.add_op(new, Operator::I64Const { value: *a }, &[], &[k.clone()]),
+        ConstVal::F32(a) => dst.add_op(new, Operator::F32Const { value: *a }, &[], &[k.clone()]),
+        ConstVal::F64(a) => dst.add_op(new, Operator::F64Const { value: *a }, &[], &[k.clone()]),
+        ConstVal::None => dst.add_op(new, Operator::RefNull { ty: k.clone() }, &[], &[k.clone()]),
+        ConstVal::Ref(func) => match func.as_ref() {
+            None => dst.add_op(new, Operator::RefNull { ty: k.clone() }, &[], &[k.clone()]),
+            Some(f) => dst.add_op(new, Operator::RefFunc { func_index: *f }, &[], &[k.clone()]),
+        },
+    }
 }
 impl Hustle<'_> {
     pub fn translate(
@@ -47,61 +61,12 @@ impl Hustle<'_> {
                 .params
                 .iter()
                 .zip(cvals.iter())
-                .map(|((k, v), cv)| {
+                .map(|((k, v), cv2)| {
                     (
                         *v,
-                        match cv.as_ref() {
+                        match cv2.as_ref() {
                             None => (vec![dst.add_blockparam(new, *k)], None, usize::MAX),
-                            Some(k2) => (
-                                vec![match &k2.0 {
-                                    ConstVal::I32(a) => dst.add_op(
-                                        new,
-                                        Operator::I32Const { value: *a },
-                                        &[],
-                                        &[k.clone()],
-                                    ),
-                                    ConstVal::I64(a) => dst.add_op(
-                                        new,
-                                        Operator::I64Const { value: *a },
-                                        &[],
-                                        &[k.clone()],
-                                    ),
-                                    ConstVal::F32(a) => dst.add_op(
-                                        new,
-                                        Operator::F32Const { value: *a },
-                                        &[],
-                                        &[k.clone()],
-                                    ),
-                                    ConstVal::F64(a) => dst.add_op(
-                                        new,
-                                        Operator::F64Const { value: *a },
-                                        &[],
-                                        &[k.clone()],
-                                    ),
-                                    ConstVal::None => dst.add_op(
-                                        new,
-                                        Operator::RefNull { ty: k.clone() },
-                                        &[],
-                                        &[k.clone()],
-                                    ),
-                                    ConstVal::Ref(func) => match func.as_ref() {
-                                        None => dst.add_op(
-                                            new,
-                                            Operator::RefNull { ty: k.clone() },
-                                            &[],
-                                            &[k.clone()],
-                                        ),
-                                        Some(f) => dst.add_op(
-                                            new,
-                                            Operator::RefFunc { func_index: *f },
-                                            &[],
-                                            &[k.clone()],
-                                        ),
-                                    },
-                                }],
-                                Some(k2.0.clone()),
-                                k2.1,
-                            ),
+                            Some(k2) => (vec![cv(&k2.0, *k, new, dst)], Some(k2.0.clone()), k2.1),
                         },
                     )
                 })
@@ -142,7 +107,10 @@ impl Hustle<'_> {
                                 if let Some(u) = u.checked_sub(1) {
                                     state2.insert(s, (t, v, u));
                                 } else {
-                                    let v = t.iter().filter_map(|a|dst.values[*a].ty(&dst.type_pool)).collect::<Vec<_>>();
+                                    let v = t
+                                        .iter()
+                                        .filter_map(|a| dst.values[*a].ty(&dst.type_pool))
+                                        .collect::<Vec<_>>();
                                     let f =
                                         *self.core.opaque.entry(v.to_owned()).or_insert_with_key(
                                             |a| {
@@ -187,32 +155,62 @@ impl Hustle<'_> {
                     let new = new;
                     let v = match &src.values[i] {
                         waffle::ValueDef::BlockParam(block, _, _) => todo!(),
-                        waffle::ValueDef::Operator(operator, list_ref, list_ref1) => {
-                            let mut a = usize::MAX;
-                            let mut d = vec![];
-                            let args = src.arg_pool[*list_ref]
-                                .iter()
-                                .filter_map(|a| u(&mut state2, dst, *a))
-                                .map(|(v, c, b)| {
-                                    a = a.min(b);
-                                    d.push(c);
-                                    v
-                                })
-                                .flatten()
-                                .collect::<Vec<_>>();
-                            let tys = &src.type_pool[*list_ref1];
-                            let d = d.into_iter().collect::<Option<Vec<_>>>();
-                            let c = d.and_then(|d| const_eval(operator, &d, None));
-                            let a = if c.is_some() { a.min(self.core.cfg.gl) } else { a };
-                            let a = match operator {
-                                Operator::Call { .. }
-                                | Operator::CallIndirect { .. }
-                                | Operator::CallRef { .. } => usize::MAX,
-                                _ => a,
-                            };
-                            let v = dst.add_op(new, operator.clone(), &args, tys);
-                            (results_ref_2(dst,v), c, a)
-                        }
+                        waffle::ValueDef::Operator(operator, list_ref, list_ref1) => match operator
+                        {
+                            Operator::Call { function_index }
+                                if self.core.cfg.inline_constants.contains_key(function_index) =>
+                            {
+                                let tys = &src.type_pool[*list_ref1];
+                                let Some(v) = self.core.cfg.inline_constants.get(function_index)
+                                else {
+                                    unreachable!()
+                                };
+                                let v2 = v
+                                    .iter()
+                                    .zip(tys.iter().cloned())
+                                    .map(|(a, b)| cv(a, b, new, dst))
+                                    .collect::<Vec<_>>();
+                                let c = if v.len() == 1 {
+                                    Some(v[0].clone())
+                                } else {
+                                    None
+                                };
+                                (v2, c, self.core.cfg.gl)
+                            }
+                            operator => {
+                                let mut a = usize::MAX;
+                                let mut d = vec![];
+                                let args = src.arg_pool[*list_ref]
+                                    .iter()
+                                    .filter_map(|a| u(&mut state2, dst, *a))
+                                    .map(|(v, c, b)| {
+                                        a = a.min(b);
+                                        d.push(c);
+                                        v
+                                    })
+                                    .flatten()
+                                    .collect::<Vec<_>>();
+                                let tys = &src.type_pool[*list_ref1];
+                                let d = d.into_iter().collect::<Option<Vec<_>>>();
+                                let c = d.and_then(|d| const_eval(operator, &d, None));
+                                let a = if c.is_some() {
+                                    a.min(self.core.cfg.gl)
+                                } else {
+                                    a
+                                };
+                                let a = match operator {
+                                    Operator::Call { .. }
+                                    | Operator::CallIndirect { .. }
+                                    | Operator::CallRef { .. } => usize::MAX,
+                                    _ => a,
+                                };
+                                let v = match c.as_ref() {
+                                    None => dst.add_op(new, operator.clone(), &args, tys),
+                                    Some(a) => cv(a, tys[0].clone(), new, dst),
+                                };
+                                (results_ref_2(dst, v), c, a)
+                            }
+                        },
                         waffle::ValueDef::PickOutput(value, a, b) => {
                             let value = state2
                                 .get(value)
@@ -227,7 +225,11 @@ impl Hustle<'_> {
                             .cloned()
                             .context("in getting the referenced value")?,
                         waffle::ValueDef::Placeholder(_) => todo!(),
-                        _ => (vec![dst.add_op(new, Operator::Nop, &[], &[])], None, usize::MAX),
+                        _ => (
+                            vec![dst.add_op(new, Operator::Nop, &[], &[])],
+                            None,
+                            usize::MAX,
+                        ),
                     };
                     match &src.values[i] {
                         ValueDef::Operator(
@@ -283,11 +285,9 @@ impl Hustle<'_> {
                             state.insert(t, ts);
                             state.insert(f, fs);
                         }
-                        ValueDef::Operator(
-                            Operator::Call { function_index },
-                            _,
-                            _,
-                        ) if self.core.cfg.bool_funcs.contains(function_index) => {
+                        ValueDef::Operator(Operator::Call { function_index }, _, _)
+                            if self.core.cfg.bool_funcs.contains(function_index) =>
+                        {
                             let (t, mut ts) = (dst.add_block(), state2.clone());
                             let (f, mut fs) = (dst.add_block(), state2.clone());
                             dst.set_terminator(
@@ -474,11 +474,12 @@ pub fn hustle_mod(m: &mut Module, cfg: Cfg) -> anyhow::Result<()> {
         // gl,
         opaque: Default::default(),
         // bool_funcs,
-        cfg
+        cfg,
     };
     for f in m.funcs.iter().collect::<BTreeSet<_>>() {
         let mut g = take(&mut m.funcs[f]);
         if let FuncDecl::Body(s, _, b) = &mut g {
+            b.convert_to_max_ssa(None);
             let s = *s;
             let mut new = FunctionBody::new(&m, s);
             new.entry = match (Hustle {
@@ -504,4 +505,34 @@ pub fn hustle_mod(m: &mut Module, cfg: Cfg) -> anyhow::Result<()> {
         m.funcs[f] = g;
     }
     Ok(())
+}
+impl Cfg {
+    pub fn wasi(&mut self, m: &mut Module) {
+        for mut i in take(&mut m.imports) {
+            let ImportKind::Func(f) = i.kind.clone() else {
+                m.imports.push(i);
+                continue;
+            };
+            if i.module != "wasi_snapshot_preview1"
+                && i.module != "wasix_32v1"
+                && i.module != "wasix_64v1"
+            {
+                m.imports.push(i);
+                continue;
+            }
+            let val = 8;
+            self.inline_constants.insert(f, vec![ConstVal::I32(val)]);
+            let sig = m.funcs[f].sig();
+            let name = m.funcs[f].name().to_owned();
+            let mut new = FunctionBody::new(&m, sig);
+            let v = new.add_op(
+                new.entry,
+                Operator::I32Const { value: val },
+                &[],
+                &[Type::I32],
+            );
+            new.set_terminator(new.entry, waffle::Terminator::Return { values: vec![v] });
+            m.funcs[f] = FuncDecl::Body(sig, name, new);
+        }
+    }
 }
