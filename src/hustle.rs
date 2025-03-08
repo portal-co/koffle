@@ -1,5 +1,9 @@
 use std::{
-    collections::{BTreeMap, BTreeSet}, default, mem::take, sync::Arc, usize
+    collections::{BTreeMap, BTreeSet},
+    default,
+    mem::take,
+    sync::Arc,
+    usize,
 };
 
 use anyhow::Context;

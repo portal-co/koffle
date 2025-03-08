@@ -27,9 +27,7 @@ pub struct Obf<R> {
     pub locked_tables: Vec<Table>,
     pub cfg: Arc<Cfg>,
 }
-pub struct Cfg {
-
-}
+pub struct Cfg {}
 
 impl<R: Rng> Obfuscate for Obf<R> {
     fn obf(

@@ -16,7 +16,12 @@ pub fn ser(
 ) {
     let input = match dst.values[input].ty(&dst.type_pool) {
         Some(Type::Heap(h)) => {
-            let TableInfo { table, talloc, tfree, .. } = t.table_in(module, h);
+            let TableInfo {
+                table,
+                talloc,
+                tfree,
+                ..
+            } = t.table_in(module, h);
             dst.add_op(
                 k,
                 Operator::Call {
@@ -141,7 +146,12 @@ pub fn des(
     };
     let ret = match &input {
         Type::Heap(h) => {
-            let TableInfo { table, talloc, tfree, .. } = t.table_in(module, h.clone());
+            let TableInfo {
+                table,
+                talloc,
+                tfree,
+                ..
+            } = t.table_in(module, h.clone());
             dst.add_op(
                 k,
                 Operator::Call {
@@ -249,7 +259,7 @@ pub fn desser(
     k: Block,
     state: &mut u64,
     base: Value,
-) -> u64{
+) -> u64 {
     let SignatureData::Func { params, returns } = module.signatures[module.funcs[f].sig()].clone()
     else {
         return *state;
@@ -275,7 +285,7 @@ pub fn new_desser(module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Fu
     let sig = new_sig(
         module,
         SignatureData::Func {
-            params: vec![idxtype.clone(),idxtype.clone()],
+            params: vec![idxtype.clone(), idxtype.clone()],
             returns: vec![Type::I64],
         },
     );
@@ -316,8 +326,19 @@ pub fn new_desser(module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Fu
         },
     );
     let state = dst.add_op(done, Operator::I64Const { value: state }, &[], &[Type::I64]);
-    let ps = dst.add_op(done,Operator::I64Const { value: ps },&[],&[Type::I64]);
-    dst.add_op(done,Operator::I64Store { memory: MemoryArg { align: 0, offset: 0, memory: mem } },&[psi,ps],&[]);
+    let ps = dst.add_op(done, Operator::I64Const { value: ps }, &[], &[Type::I64]);
+    dst.add_op(
+        done,
+        Operator::I64Store {
+            memory: MemoryArg {
+                align: 0,
+                offset: 0,
+                memory: mem,
+            },
+        },
+        &[psi, ps],
+        &[],
+    );
     dst.set_terminator(
         done,
         waffle::Terminator::Return {
@@ -329,15 +350,29 @@ pub fn new_desser(module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Fu
         .push(FuncDecl::Body(sig, format!("~desser"), dst));
 }
 #[derive(Default)]
-pub struct SerCache{
-    desser: OnceMap<Func,Box<Func>>,
-    serdes: OnceMap<(Signature,Func,Func,Func,u64),Box<Func>>,
+pub struct SerCache {
+    desser: OnceMap<Func, Box<Func>>,
+    serdes: OnceMap<(Signature, Func, Func, Func, u64), Box<Func>>,
 }
-impl SerCache{
-    pub fn new_desser(&self, module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Func{
-        return *self.desser.insert(f, |_|Box::new(new_desser(module, t, mem, f)));
+impl SerCache {
+    pub fn new_desser(&self, module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Func {
+        return *self
+            .desser
+            .insert(f, |_| Box::new(new_desser(module, t, mem, f)));
     }
-    pub fn new_serdes(&self, module: &mut Module, t: &TableMap, mem: Memory, sig: Signature, bump: Func, send: Func, fin: Func, id: u64) -> Func{
-        return *self.serdes.insert((sig,bump,send,fin,id),|_|Box::new(new_serdes(module, t, mem, sig, bump, send, fin, id)))
+    pub fn new_serdes(
+        &self,
+        module: &mut Module,
+        t: &TableMap,
+        mem: Memory,
+        sig: Signature,
+        bump: Func,
+        send: Func,
+        fin: Func,
+        id: u64,
+    ) -> Func {
+        return *self.serdes.insert((sig, bump, send, fin, id), |_| {
+            Box::new(new_serdes(module, t, mem, sig, bump, send, fin, id))
+        });
     }
 }
