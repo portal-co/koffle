@@ -18,13 +18,22 @@ use waffle::{
     SignatureData, Terminator, Type, Value, ValueDef,
 };
 
+use crate::FuncCollector;
+pub struct InlineCfg {
+    pub funcs: BTreeSet<Func>,
+}
+impl FuncCollector for InlineCfg {
+    fn add_func(&mut self, f: Func) {
+        self.funcs.insert(f);
+    }
+}
 pub struct Inline {
     pub blocks: BTreeMap<Block, Block>,
     pub return_to: Option<Block>,
-    pub inline_funcs: Arc<BTreeSet<Func>>,
+    pub inline_funcs: Arc<InlineCfg>,
 }
 impl Inline {
-    pub fn new(a: BTreeSet<Func>) -> Self {
+    pub fn new(a: InlineCfg) -> Self {
         Self {
             blocks: BTreeMap::new(),
             return_to: None,
@@ -72,7 +81,7 @@ impl Inline {
                     waffle::ValueDef::BlockParam(block, _, _) => todo!(),
                     waffle::ValueDef::Operator(operator, list_ref, list_ref1) => match operator {
                         Operator::Call { function_index }
-                            if self.inline_funcs.contains(function_index)
+                            if self.inline_funcs.funcs.contains(function_index)
                                 && module.funcs[*function_index].body().is_some() =>
                         {
                             let Some(b) = module.funcs[*function_index].body() else {
@@ -81,7 +90,7 @@ impl Inline {
                             let k2 = dst.add_block();
                             let tys = &src.type_pool[*list_ref1];
                             let args = src.arg_pool[*list_ref]
-                                .iter() 
+                                .iter()
                                 .filter_map(|a| state.get(a))
                                 .flatten()
                                 .cloned()
@@ -222,7 +231,9 @@ impl Inline {
                             .collect(),
                     },
                     Some(k) => {
-                        if self.inline_funcs.contains(func) && module.funcs[*func].body().is_some(){
+                        if self.inline_funcs.funcs.contains(func)
+                            && module.funcs[*func].body().is_some()
+                        {
                             let Some(b) = module.funcs[*func].body() else {
                                 unreachable!()
                             };
