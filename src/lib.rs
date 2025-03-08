@@ -11,6 +11,7 @@ use waffle_ast::tutils::{talloc, tfree};
 pub mod bulk_memory_lowering;
 pub mod rand;
 pub mod hustle;
+pub mod inline;
 #[cfg(feature = "corpack")]
 pub mod corpack;
 pub fn init_with(module: &mut Module, init: Func) {
@@ -118,14 +119,19 @@ pub fn init_with(module: &mut Module, init: Func) {
     }
     // Ok(())
 }
-
+#[derive(Clone, Copy)]
+pub struct TableInfo{
+    pub table: Table,
+    pub talloc: Func,
+    pub tfree: Func,
+}
 #[derive(Default)]
 pub struct TableMap {
-    tables: OnceMap<WithNullable<HeapType>, Box<(Table, Func, Func)>>,
+    tables: OnceMap<WithNullable<HeapType>, Box<TableInfo>>,
 }
 impl TableMap {
-    pub fn table_in(&self, module: &mut Module, ty: WithNullable<HeapType>) -> (Table, Func, Func) {
-        let (t, alloc, free) = self.tables.insert(ty, |ty| {
+    pub fn table_in(&self, module: &mut Module, ty: WithNullable<HeapType>) -> TableInfo{
+        * self.tables.insert(ty, |ty| {
             Box::new({
                 let t = module.tables.push(TableData {
                     ty: Type::Heap(ty.clone()),
@@ -134,14 +140,14 @@ impl TableMap {
                     func_elements: None,
                     table64: false,
                 });
-                (
-                    t,
-                    talloc(module, t, &[]).unwrap(),
-                    tfree(module, t, &[]).unwrap(),
-                )
+                TableInfo{
+                    table: t,
+                    talloc: talloc(module, t, &[]).unwrap(),
+                    tfree:tfree(module, t, &[]).unwrap(),
+                }
             })
-        });
-        (*t, *alloc, *free)
+        })
+        // (*t, *alloc, *free)
     }
 }
 

@@ -1,8 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    default,
-    mem::take,
-    usize,
+    collections::{BTreeMap, BTreeSet}, default, mem::take, sync::Arc, usize
 };
 
 use anyhow::Context;
@@ -23,7 +20,7 @@ pub struct Hustle<'a> {
 }
 pub struct Core {
     pub opaque: BTreeMap<Vec<Type>, Func>,
-    pub cfg: Cfg,
+    pub cfg: Arc<Cfg>,
 }
 pub struct Cfg {
     pub bool_funcs: BTreeSet<Func>,
@@ -474,7 +471,7 @@ pub fn hustle_mod(m: &mut Module, cfg: Cfg) -> anyhow::Result<()> {
         // gl,
         opaque: Default::default(),
         // bool_funcs,
-        cfg,
+        cfg: Arc::new(cfg),
     };
     for f in m.funcs.iter().collect::<BTreeSet<_>>() {
         let mut g = take(&mut m.funcs[f]);

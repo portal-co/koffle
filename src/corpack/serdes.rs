@@ -16,7 +16,7 @@ pub fn ser(
 ) {
     let input = match dst.values[input].ty(&dst.type_pool) {
         Some(Type::Heap(h)) => {
-            let (table, talloc, tfree) = t.table_in(module, h);
+            let TableInfo { table, talloc, tfree } = t.table_in(module, h);
             dst.add_op(
                 k,
                 Operator::Call {
@@ -141,7 +141,7 @@ pub fn des(
     };
     let ret = match &input {
         Type::Heap(h) => {
-            let (table, talloc, tfree) = t.table_in(module, h.clone());
+            let TableInfo { table, talloc, tfree } = t.table_in(module, h.clone());
             dst.add_op(
                 k,
                 Operator::Call {

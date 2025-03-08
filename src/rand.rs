@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ::rand::{seq::IndexedRandom, Rng};
 use modinverse::modinverse;
 use waffle::{Block, Terminator, Value};
@@ -23,7 +25,12 @@ pub fn random_val(ty: Type, dst: &mut FunctionBody, k: Block, rng: &mut impl Rng
 pub struct Obf<R> {
     pub rng: R,
     pub locked_tables: Vec<Table>,
+    pub cfg: Arc<Cfg>,
 }
+pub struct Cfg {
+
+}
+
 impl<R: Rng> Obfuscate for Obf<R> {
     fn obf(
         &mut self,
@@ -216,20 +223,24 @@ impl<R: Rng> Obfuscate for Obf<R> {
                     return self.obf(Operator::I64Mul, f, b, &[tv, sv], types, module);
                 }
             }
-            if let Operator::I32Add = o{
-                if self.rng.random_bool(0.1){
-                    let (z,b) = self.obf(Operator::I32Eqz, f, b, &[args[0]], &[Type::I32], module)?;
-                    let (v,b) = self.obf(o, f, b, args, types, module)?;
-                    let (v,b) = self.obf(Operator::Select, f, b, &[z,args[1],v], types, module)?;
-                    return Ok((v,b));
+            if let Operator::I32Add = o {
+                if self.rng.random_bool(0.1) {
+                    let (z, b) =
+                        self.obf(Operator::I32Eqz, f, b, &[args[0]], &[Type::I32], module)?;
+                    let (v, b) = self.obf(o, f, b, args, types, module)?;
+                    let (v, b) =
+                        self.obf(Operator::Select, f, b, &[z, args[1], v], types, module)?;
+                    return Ok((v, b));
                 }
             }
-            if let Operator::I64Add = o{
-                if self.rng.random_bool(0.1){
-                    let (z,b) = self.obf(Operator::I64Eqz, f, b, &[args[0]], &[Type::I32], module)?;
-                    let (v,b) = self.obf(o, f, b, args, types, module)?;
-                    let (v,b) = self.obf(Operator::Select, f, b, &[z,args[1],v], types, module)?;
-                    return Ok((v,b));
+            if let Operator::I64Add = o {
+                if self.rng.random_bool(0.1) {
+                    let (z, b) =
+                        self.obf(Operator::I64Eqz, f, b, &[args[0]], &[Type::I32], module)?;
+                    let (v, b) = self.obf(o, f, b, args, types, module)?;
+                    let (v, b) =
+                        self.obf(Operator::Select, f, b, &[z, args[1], v], types, module)?;
+                    return Ok((v, b));
                 }
             }
             if let Some(memory) = waffle::op_traits::memory_arg(&o) {
