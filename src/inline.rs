@@ -32,6 +32,7 @@ pub struct Inline {
     pub blocks: BTreeMap<Block, Block>,
     pub return_to: Option<Block>,
     pub inline_funcs: Arc<InlineCfg>,
+    pub stack: BTreeSet<Func>,
 }
 pub fn inline_mod(m: &mut Module, cfg: InlineCfg) -> anyhow::Result<()> {
     for f in m.funcs.iter().collect::<BTreeSet<_>>() {
@@ -64,6 +65,7 @@ impl Inline {
             blocks: BTreeMap::new(),
             return_to: None,
             inline_funcs: Arc::new(a),
+            stack: Default::default(),
         }
     }
     pub fn translate(
@@ -108,6 +110,7 @@ impl Inline {
                     waffle::ValueDef::Operator(operator, list_ref, list_ref1) => match operator {
                         Operator::Call { function_index }
                             if self.inline_funcs.funcs.contains(function_index)
+                                && !self.stack.contains(function_index)
                                 && module.funcs[*function_index].body().is_some() =>
                         {
                             let Some(b) = module.funcs[*function_index].body() else {
@@ -125,6 +128,12 @@ impl Inline {
                                 blocks: Default::default(),
                                 return_to: Some(k2),
                                 inline_funcs: self.inline_funcs.clone(),
+                                stack: match self.stack.clone() {
+                                    mut a => {
+                                        a.insert(*function_index);
+                                        a
+                                    }
+                                },
                             }
                             .translate(module, dst, b, b.entry)?;
                             dst.set_terminator(
@@ -258,6 +267,7 @@ impl Inline {
                     },
                     Some(k) => {
                         if self.inline_funcs.funcs.contains(func)
+                            && !self.stack.contains(func)
                             && module.funcs[*func].body().is_some()
                         {
                             let Some(b) = module.funcs[*func].body() else {
@@ -278,6 +288,12 @@ impl Inline {
                                 blocks: Default::default(),
                                 return_to: Some(k),
                                 inline_funcs: self.inline_funcs.clone(),
+                                stack: match self.stack.clone() {
+                                    mut a => {
+                                        a.insert(*func);
+                                        a
+                                    }
+                                },
                             }
                             .translate(module, dst, b, b.entry)?;
                             Terminator::Br {
