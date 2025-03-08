@@ -13,6 +13,7 @@ pub fn ser(
     k: Block,
     state: &mut u64,
     base: Value,
+    collector: &mut (dyn FuncCollector + '_),
 ) {
     let input = match dst.values[input].ty(&dst.type_pool) {
         Some(Type::Heap(h)) => {
@@ -21,7 +22,7 @@ pub fn ser(
                 talloc,
                 tfree,
                 ..
-            } = t.table_in(module, h);
+            } = t.table_in(module,collector, h);
             dst.add_op(
                 k,
                 Operator::Call {
@@ -88,6 +89,7 @@ pub fn des(
     k: Block,
     state: &mut u64,
     base: Value,
+    collector: &mut (dyn FuncCollector + '_),
 ) -> Value {
     // let input = match dst.values[input].ty(&dst.type_pool){
     //     Some(Type::Heap(h)) => {
@@ -151,7 +153,7 @@ pub fn des(
                 talloc,
                 tfree,
                 ..
-            } = t.table_in(module, h.clone());
+            } = t.table_in(module,collector, h.clone());
             dst.add_op(
                 k,
                 Operator::Call {
@@ -174,6 +176,7 @@ pub fn new_serdes(
     send: Func,
     fin: Func,
     id: u64,
+    collector: &mut (dyn FuncCollector + '_),
 ) -> Func {
     let mut dst = FunctionBody::new(module, sig);
     let idxtype = if module.memories[mem].memory64 {
@@ -213,7 +216,7 @@ pub fn new_serdes(
         .map(|a| a.1)
         .collect::<Vec<_>>()
     {
-        ser(&mut dst, module, t, mem, param, k, &mut state, base);
+        ser(&mut dst, module, t, mem, param, k, &mut state, base, collector);
     }
     let [idi, si] = [id, state].map(|u| {
         dst.add_op(
@@ -235,7 +238,7 @@ pub fn new_serdes(
         .rets
         .clone()
         .into_iter()
-        .map(|r| des(&mut dst, module, t, mem, r, k, &mut state, base))
+        .map(|r| des(&mut dst, module, t, mem, r, k, &mut state, base, collector))
         .collect();
     dst.add_op(
         dst.entry,
@@ -259,6 +262,7 @@ pub fn desser(
     k: Block,
     state: &mut u64,
     base: Value,
+    collector: &mut (dyn FuncCollector + '_),
 ) -> u64 {
     let SignatureData::Func { params, returns } = module.signatures[module.funcs[f].sig()].clone()
     else {
@@ -266,17 +270,17 @@ pub fn desser(
     };
     let args = params
         .into_iter()
-        .map(|r| des(dst, module, t, mem, r, k, state, base))
+        .map(|r| des(dst, module, t, mem, r, k, state, base,collector))
         .collect::<Vec<_>>();
     let ps = *state;
     let v = dst.add_op(k, Operator::Call { function_index: f }, &args, &returns);
     let v = results_ref_2(dst, v);
     for v in v {
-        ser(dst, module, t, mem, v, k, state, base);
+        ser(dst, module, t, mem, v, k, state, base,collector);
     }
     return ps;
 }
-pub fn new_desser(module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Func {
+pub fn new_desser(module: &mut Module, t: &TableMap, mem: Memory, f: Func,    collector: &mut (dyn FuncCollector + '_)) -> Func {
     let idxtype = if module.memories[mem].memory64 {
         Type::I64
     } else {
@@ -315,7 +319,7 @@ pub fn new_desser(module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Fu
         },
     );
     let mut state = 0;
-    let ps = desser(&mut dst, module, t, mem, f, new, &mut state, base);
+    let ps = desser(&mut dst, module, t, mem, f, new, &mut state, base,collector);
     dst.set_terminator(
         new,
         waffle::Terminator::Br {
@@ -355,10 +359,10 @@ pub struct SerCache {
     serdes: OnceMap<(Signature, Func, Func, Func, u64), Box<Func>>,
 }
 impl SerCache {
-    pub fn new_desser(&self, module: &mut Module, t: &TableMap, mem: Memory, f: Func) -> Func {
+    pub fn new_desser(&self, module: &mut Module, t: &TableMap, mem: Memory, f: Func,    collector: &mut (dyn FuncCollector + '_)) -> Func {
         return *self
             .desser
-            .insert(f, |_| Box::new(new_desser(module, t, mem, f)));
+            .insert(f, |_| Box::new(new_desser(module, t, mem, f, collector)));
     }
     pub fn new_serdes(
         &self,
@@ -370,9 +374,10 @@ impl SerCache {
         send: Func,
         fin: Func,
         id: u64,
+        collector: &mut (dyn FuncCollector + '_),
     ) -> Func {
         return *self.serdes.insert((sig, bump, send, fin, id), |_| {
-            Box::new(new_serdes(module, t, mem, sig, bump, send, fin, id))
+            Box::new(new_serdes(module, t, mem, sig, bump, send, fin, id, collector))
         });
     }
 }

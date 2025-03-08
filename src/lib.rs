@@ -152,7 +152,7 @@ pub struct TableMap {
     tables: OnceMap<WithNullable<HeapType>, Box<TableInfo>>,
 }
 impl TableMap {
-    pub fn table_in(&self, module: &mut Module, ty: WithNullable<HeapType>) -> TableInfo {
+    pub fn table_in(&self, module: &mut Module,    collector: &mut (dyn FuncCollector + '_), ty: WithNullable<HeapType>) -> TableInfo {
         *self.tables.insert(ty, |ty| {
             Box::new({
                 let t = module.tables.push(TableData {
@@ -168,6 +168,9 @@ impl TableMap {
                     tfree: tfree(module, t, &[]).unwrap(),
                     ty: *ty,
                 };
+                for f in [(i.talloc),(i.tfree)]{
+                    collector.add_func(f);
+                }
 
                 i
             })
