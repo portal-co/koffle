@@ -19,6 +19,7 @@ use waffle::{
 };
 
 use crate::FuncCollector;
+#[derive(Clone)]
 pub struct InlineCfg {
     pub funcs: BTreeSet<Func>,
 }
@@ -31,6 +32,31 @@ pub struct Inline {
     pub blocks: BTreeMap<Block, Block>,
     pub return_to: Option<Block>,
     pub inline_funcs: Arc<InlineCfg>,
+}
+pub fn inline_mod(m: &mut Module, cfg: InlineCfg) -> anyhow::Result<()> {
+    for f in m.funcs.iter().collect::<BTreeSet<_>>() {
+        let mut g = take(&mut m.funcs[f]);
+        if let FuncDecl::Body(s, _, b) = &mut g {
+            b.convert_to_max_ssa(None);
+            let s = *s;
+            let mut new = FunctionBody::new(&m, s);
+            new.entry = match (Inline::new(cfg.clone())).translate(
+                m, &mut new, &*b,
+                b.entry,
+                // b.blocks[b.entry].params.iter().map(|_| None).collect(),
+            ) {
+                Ok(a) => a,
+                Err(e) => {
+                    m.funcs[f] = g;
+                    return Err(e);
+                }
+            };
+            new.recompute_edges();
+            *b = new;
+        }
+        m.funcs[f] = g;
+    }
+    Ok(())
 }
 impl Inline {
     pub fn new(a: InlineCfg) -> Self {

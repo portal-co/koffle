@@ -26,7 +26,12 @@ impl<'a, T: FuncCollector> FuncCollector for &'a mut T {
         FuncCollector::add_func(&mut **self, f);
     }
 }
-pub fn init_with(module: &mut Module, collector: &mut (dyn FuncCollector + '_), init: Func) {
+pub fn init_with(
+    module: &mut Module,
+    collector: &mut (dyn FuncCollector + '_),
+    init: Func,
+    run_on_imports: bool,
+) {
     let idg = module.globals.push(GlobalData {
         ty: Type::I32,
         mutable: true,
@@ -36,14 +41,18 @@ pub fn init_with(module: &mut Module, collector: &mut (dyn FuncCollector + '_), 
         .funcs
         .iter()
         .filter(|f| {
-            module
-                .imports
-                .iter()
-                .filter_map(|a| match &a.kind {
-                    ImportKind::Func(f) => Some(f),
-                    _ => None,
-                })
-                .all(|g| *g != *f)
+            if run_on_imports {
+                true
+            } else {
+                module
+                    .imports
+                    .iter()
+                    .filter_map(|a| match &a.kind {
+                        ImportKind::Func(f) => Some(f),
+                        _ => None,
+                    })
+                    .all(|g| *g != *f)
+            }
         })
         // .filter(|a| funcs.contains(a))
         .collect::<Vec<_>>()
