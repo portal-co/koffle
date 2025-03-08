@@ -29,10 +29,10 @@ impl FuncCollector for InlineCfg {
     }
 }
 pub struct Inline {
-    pub blocks: BTreeMap<Block, Block>,
-    pub return_to: Option<Block>,
-    pub inline_funcs: Arc<InlineCfg>,
-    pub stack: BTreeSet<Func>,
+    blocks: BTreeMap<Block, Block>,
+    return_to: Option<Block>,
+    inline_funcs: Arc<InlineCfg>,
+    stack: BTreeSet<Func>,
 }
 pub fn inline_mod(m: &mut Module, cfg: InlineCfg) -> anyhow::Result<()> {
     for f in m.funcs.iter().collect::<BTreeSet<_>>() {
