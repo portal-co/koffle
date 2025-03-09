@@ -44,6 +44,14 @@ pub struct Importify {
     ids: Arc<AtomicUsize>,
 }
 impl Importify {
+    pub fn new(ids: Arc<AtomicUsize>) -> Self {
+        Self {
+            blocks: Default::default(),
+            manifest: Default::default(),
+            funcs: Default::default(),
+            ids: ids,
+        }
+    }
     pub fn translate_f(
         &mut self,
         module: &mut Module,
