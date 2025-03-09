@@ -17,6 +17,7 @@ pub mod detta;
 pub mod hustle;
 pub mod inline;
 pub mod rand;
+pub mod importify;
 #[impl_for_tuples(12)]
 pub trait FuncCollector {
     fn add_func(&mut self, f: Func);
@@ -71,12 +72,15 @@ pub fn init_with(
                 .map(|a| f.add_blockparam(new, a))
                 .collect::<Vec<_>>();
             let old = f.add_block();
-            let id = f.add_op(
+            let mut id = f.add_op(
                 f.entry,
                 Operator::GlobalGet { global_index: idg },
                 &[],
                 &[Type::I32],
             );
+            for _ in 0..2{
+                id = f.add_op(f.entry, Operator::I32Eqz, &[id], &[Type::I32]);
+            }
             let fix = f.add_block();
             f.set_terminator(
                 f.entry,
@@ -152,7 +156,12 @@ pub struct TableMap {
     tables: OnceMap<WithNullable<HeapType>, Box<TableInfo>>,
 }
 impl TableMap {
-    pub fn table_in(&self, module: &mut Module,    collector: &mut (dyn FuncCollector + '_), ty: WithNullable<HeapType>) -> TableInfo {
+    pub fn table_in(
+        &self,
+        module: &mut Module,
+        collector: &mut (dyn FuncCollector + '_),
+        ty: WithNullable<HeapType>,
+    ) -> TableInfo {
         *self.tables.insert(ty, |ty| {
             Box::new({
                 let t = module.tables.push(TableData {
@@ -168,7 +177,7 @@ impl TableMap {
                     tfree: tfree(module, t, &[]).unwrap(),
                     ty: *ty,
                 };
-                for f in [(i.talloc),(i.tfree)]{
+                for f in [(i.talloc), (i.tfree)] {
                     collector.add_func(f);
                 }
 
