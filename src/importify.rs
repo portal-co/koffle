@@ -44,6 +44,9 @@ pub struct Importify {
     ids: Arc<AtomicUsize>,
 }
 impl Importify {
+    pub fn to_ids(self) -> Arc<AtomicUsize>{
+        self.ids
+    }
     pub fn new(ids: Arc<AtomicUsize>) -> Self {
         Self {
             blocks: Default::default(),
