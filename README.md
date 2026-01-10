@@ -1,13 +1,14 @@
-# koffle
+# portal-pc-koffle
 
 ## Description
-Project koffle
+"Krazy things with WAFFLE". A utility crate building on `portal-pc-waffle`, possibly for experimental WASM transformations.
 
 ## Goals
-- [ ] Add project goals
+- [ ] Extend WAFFLE capabilities
+- [ ] Experiment with new WASM transforms
 
 ## Progress
-- [ ] Initial setup
+- [ ] Crate initialized
 
 ---
 *AI assisted*
